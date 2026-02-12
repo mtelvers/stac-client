@@ -1,0 +1,5 @@
+(library
+ (name stac_client)
+ (public_name stac_client)
+ (libraries cohttp-eio cohttp eio yojson uri tls-eio ca-certs unix)
+ (preprocess (pps ppx_deriving_yojson)))
