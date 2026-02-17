@@ -33,6 +33,10 @@ type t
 val make : _ Eio.Net.t -> t
 (** [make net] creates a client using system CA certificates for TLS. *)
 
+val http_get : sw:Eio.Switch.t -> t -> string -> Http.Response.t * string
+(** [http_get ~sw t url] performs an HTTP GET request using the TLS-configured
+    client. Returns the response and body string. *)
+
 val search :
   sw:Eio.Switch.t ->
   t ->
