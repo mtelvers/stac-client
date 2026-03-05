@@ -9,6 +9,7 @@ depends: [
   "ocaml" {>= "5.1.0"}
   "dune" {>= "3.0"}
   "curl"
+  "uri"
   "yojson"
   "ppx_deriving_yojson"
   "alcotest" {with-test}

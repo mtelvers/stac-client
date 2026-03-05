@@ -14,6 +14,7 @@
   (ocaml (>= 5.1.0))
   dune
   curl
+  uri
   yojson
   ppx_deriving_yojson
   (alcotest :with-test)))
