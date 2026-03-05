@@ -8,15 +8,9 @@ bug-reports: "https://github.com/mtelvers/stac-client/issues"
 depends: [
   "ocaml" {>= "5.1.0"}
   "dune" {>= "3.0"}
-  "cohttp-eio"
-  "http"
+  "curl"
   "yojson"
-  "eio"
-  "eio_main"
   "ppx_deriving_yojson"
-  "tls-eio"
-  "ca-certs"
-  "mirage-crypto-rng"
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

@@ -27,33 +27,30 @@ type search_params = {
 (** {1 Client} *)
 
 type t
-(** A STAC client encapsulating an HTTPS-capable HTTP client and a SAS token
-    cache. *)
+(** A STAC client encapsulating an HTTP client and a SAS token cache. *)
 
-val make : _ Eio.Net.t -> t
-(** [make net] creates a client using system CA certificates for TLS. *)
+val make : unit -> t
+(** [make ()] creates a client. *)
 
-val http_get : sw:Eio.Switch.t -> t -> string -> Http.Response.t * string
-(** [http_get ~sw t url] performs an HTTP GET request using the TLS-configured
-    client. Returns the response and body string. *)
+val http_get : t -> string -> int * string
+(** [http_get t url] performs an HTTP GET request.
+    Returns [(status_code, body)]. *)
 
 val search :
-  sw:Eio.Switch.t ->
   t ->
   base_url:string ->
   ?max_pages:int ->
   search_params ->
   item list
-(** [search ~sw t ~base_url params] issues a STAC search and follows
+(** [search t ~base_url params] issues a STAC search and follows
     pagination links automatically. [max_pages] (default 1000) bounds the
     number of pages fetched. *)
 
-val sign_planetary_computer : sw:Eio.Switch.t -> t -> item -> item
+val sign_planetary_computer : t -> item -> item
 (** Sign asset URLs with a Microsoft Planetary Computer SAS token. The item
     must have a [collection] field. *)
 
 val search_and_sign :
-  sw:Eio.Switch.t ->
   t ->
   base_url:string ->
   ?max_pages:int ->

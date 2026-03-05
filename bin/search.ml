@@ -19,13 +19,10 @@ let () =
     else None
   in
   let params = { collections = [collection]; bbox; datetime; query = None; limit } in
-  Eio_main.run @@ fun env ->
-  Mirage_crypto_rng_unix.use_default ();
-  let t = make env#net in
-  Eio.Switch.run @@ fun sw ->
+  let t = make () in
   Printf.printf "Searching %s for %s in [%s] during %s...\n%!"
     pc_base_url collection Sys.argv.(2) datetime;
-  let items = search ~sw t ~base_url:pc_base_url params in
+  let items = search t ~base_url:pc_base_url params in
   Printf.printf "Found %d items\n\n" (List.length items);
   let show_items = List.filteri (fun i _ -> i < 5) items in
   List.iteri (fun i item ->
@@ -43,7 +40,7 @@ let () =
   match items with
   | [] -> Printf.printf "No items to sign.\n"
   | first :: _ ->
-    let signed = sign_planetary_computer ~sw t first in
+    let signed = sign_planetary_computer t first in
     Printf.printf "Signed item: %s\n" signed.id;
     (match signed.assets with
      | (name, asset) :: _ ->

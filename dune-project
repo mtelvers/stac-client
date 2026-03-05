@@ -13,13 +13,7 @@
  (depends
   (ocaml (>= 5.1.0))
   dune
-  cohttp-eio
-  http
+  curl
   yojson
-  eio
-  eio_main
   ppx_deriving_yojson
-  tls-eio
-  ca-certs
-  mirage-crypto-rng
   (alcotest :with-test)))

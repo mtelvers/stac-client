@@ -23,7 +23,6 @@ type search_params = {
 }
 
 type t = {
-  client : Cohttp_eio.Client.t;
   token_cache : (string, string * string) Hashtbl.t;
 }
 
@@ -139,46 +138,38 @@ let search_params_to_yojson (p : search_params) : Yojson.Safe.t =
   in
   `Assoc fields
 
-(* -- TLS / HTTP ---------------------------------------------------------- *)
+(* -- HTTP via curl ------------------------------------------------------- *)
 
-let https_handler ~authenticator =
-  let tls_config =
-    match Tls.Config.client ~authenticator () with
-    | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
-    | Ok c -> c
-  in
-  fun uri raw ->
-    let host =
-      Uri.host uri
-      |> Option.map (fun x -> Domain_name.(host_exn (of_string_exn x)))
-    in
-    Tls_eio.client_of_flow ?host tls_config raw
+let make () =
+  { token_cache = Hashtbl.create 16 }
 
-let make (net : _ Eio.Net.t) =
-  let authenticator =
-    match Ca_certs.authenticator () with
-    | Ok x -> x
-    | Error (`Msg m) -> failwith ("CA certs error: " ^ m)
-  in
-  let client =
-    Cohttp_eio.Client.make ~https:(Some (https_handler ~authenticator)) net
-  in
-  { client; token_cache = Hashtbl.create 16 }
+let http_get _t url =
+  let buf = Buffer.create 4096 in
+  let c = Curl.init () in
+  Curl.set_url c url;
+  Curl.set_followlocation c true;
+  Curl.set_writefunction c (fun s ->
+    Buffer.add_string buf s; String.length s);
+  Curl.perform c;
+  let code = Curl.get_httpcode c in
+  Curl.cleanup c;
+  (code, Buffer.contents buf)
 
-let read_body body =
-  Eio.Buf_read.(parse_exn take_all) body ~max_size:(1024 * 1024 * 10)
-
-let http_get ~sw t uri =
-  let resp, body = Cohttp_eio.Client.get ~sw t.client (Uri.of_string uri) in
-  (resp, read_body body)
-
-let http_post_json ~sw t uri json_body =
-  let headers = Http.Header.of_list [("Content-Type", "application/json")] in
-  let body = Cohttp_eio.Body.of_string json_body in
-  let resp, resp_body =
-    Cohttp_eio.Client.post ~sw t.client ~headers ~body (Uri.of_string uri)
-  in
-  (resp, read_body resp_body)
+let http_post_json _t url json_body =
+  let buf = Buffer.create 4096 in
+  let c = Curl.init () in
+  Curl.set_url c url;
+  Curl.set_followlocation c true;
+  Curl.set_post c true;
+  Curl.set_postfields c json_body;
+  Curl.set_postfieldsize c (String.length json_body);
+  Curl.set_httpheader c ["Content-Type: application/json"];
+  Curl.set_writefunction c (fun s ->
+    Buffer.add_string buf s; String.length s);
+  Curl.perform c;
+  let code = Curl.get_httpcode c in
+  Curl.cleanup c;
+  (code, Buffer.contents buf)
 
 (* -- Pagination ---------------------------------------------------------- *)
 
@@ -219,19 +210,18 @@ let parse_features_from_response body_str =
     (features, next_link)
   | _ -> ([], None)
 
-let search ~sw t ~base_url ?(max_pages = 1000) (params : search_params) : item list =
+let search t ~base_url ?(max_pages = 1000) (params : search_params) : item list =
   let url = base_url ^ "/search" in
   let json_body = Yojson.Safe.to_string (search_params_to_yojson params) in
   let rec fetch_page ~url ~meth ~body acc pages_remaining =
     if pages_remaining <= 0 then List.rev acc
     else
-      let resp, body_str = match meth with
-        | "POST" -> http_post_json ~sw t url body
-        | _ -> http_get ~sw t url
+      let code, body_str = match meth with
+        | "POST" -> http_post_json t url body
+        | _ -> http_get t url
       in
-      if Http.Status.compare resp.status `OK <> 0 then
-        failwith (Printf.sprintf "STAC search returned %s: %s"
-          (Http.Status.to_string resp.status) body_str);
+      if code <> 200 then
+        failwith (Printf.sprintf "STAC search returned %d: %s" code body_str);
       let features_json, next_link = parse_features_from_response body_str in
       let items = List.filter_map (fun j ->
         match item_of_yojson j with
@@ -268,15 +258,14 @@ let is_token_valid expiry_str =
   let threshold = format_utc (Unix.gettimeofday () +. 60.0) in
   String.compare threshold expiry_str < 0
 
-let get_sas_token ~sw t collection =
+let get_sas_token t collection =
   match Hashtbl.find_opt t.token_cache collection with
   | Some (token, expiry) when is_token_valid expiry -> token
   | _ ->
     let url = pc_token_endpoint ^ "/" ^ collection in
-    let resp, body_str = http_get ~sw t url in
-    if Http.Status.compare resp.status `OK <> 0 then
-      failwith (Printf.sprintf "SAS token request failed (%s): %s"
-        (Http.Status.to_string resp.status) body_str);
+    let code, body_str = http_get t url in
+    if code <> 200 then
+      failwith (Printf.sprintf "SAS token request failed (%d): %s" code body_str);
     let json = Yojson.Safe.from_string body_str in
     (match json with
      | `Assoc fields ->
@@ -298,20 +287,20 @@ let sign_href token href =
   else
     href ^ "?" ^ token
 
-let sign_planetary_computer ~sw t (item : item) : item =
+let sign_planetary_computer t (item : item) : item =
   let collection = match item.collection with
     | Some c -> c
     | None -> failwith ("Cannot sign item without collection: " ^ item.id)
   in
-  let token = get_sas_token ~sw t collection in
+  let token = get_sas_token t collection in
   let assets = List.map (fun (k, a) ->
     (k, { a with href = sign_href token a.href })
   ) item.assets in
   { item with assets }
 
-let search_and_sign ~sw t ~base_url ?max_pages params =
-  let items = search ~sw t ~base_url ?max_pages params in
-  List.map (sign_planetary_computer ~sw t) items
+let search_and_sign t ~base_url ?max_pages params =
+  let items = search t ~base_url ?max_pages params in
+  List.map (sign_planetary_computer t) items
 
 (* -- Property accessors -------------------------------------------------- *)
 
